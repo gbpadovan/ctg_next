@@ -9,6 +9,8 @@ import { SignalHistoryTable } from '@/components/dashboard/SignalHistoryTable';
 import { SUPPORTED_TOKENS, TokenDefinition } from '@/lib/data/tokens';
 import { CTGAnalysisResult } from '@/lib/indicators/ctg';
 import { fetchIndicatorAction, triggerManualSyncAction } from './actions';
+import { getCurrentUserAction, logoutAction } from './actions/auth';
+import { SessionPayload } from '@/lib/auth/session';
 import {
   Info,
   Layers,
@@ -45,8 +47,9 @@ export default function DashboardPage() {
     message?: string;
   } | null>(null);
   const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<SessionPayload | null>(null);
 
-  // Check database status and load initial token
+  // Check database status, load initial token, and get current user
   useEffect(() => {
     fetch('/api/tokens')
       .then((res) => res.json())
@@ -56,6 +59,19 @@ export default function DashboardPage() {
         }
       })
       .catch((err) => console.warn('Could not verify DB status:', err));
+
+    getCurrentUserAction()
+      .then((user) => {
+        if (!user) {
+          window.location.href = '/login';
+        } else {
+          setCurrentUser(user);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not verify current user:', err);
+        window.location.href = '/login';
+      });
   }, []);
 
   // Fetch indicator data whenever selected token or mode changes
@@ -87,6 +103,10 @@ export default function DashboardPage() {
     (t) => t.symbol.toUpperCase() === selectedSymbol.toUpperCase()
   );
 
+  const handleLogout = async () => {
+    await logoutAction();
+  };
+
   return (
     <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full gap-6">
       {/* 1. Header */}
@@ -97,6 +117,8 @@ export default function DashboardPage() {
         isRefreshing={isPending || loading}
         mode={mode}
         onModeChange={(m) => setMode(m)}
+        user={currentUser ? { name: currentUser.name, email: currentUser.email } : null}
+        onLogout={handleLogout}
       />
 
       {/* Sync Status Banner */}

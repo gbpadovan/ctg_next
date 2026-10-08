@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Database, RefreshCw, Sparkles, ShieldCheck, Zap } from 'lucide-react';
+import { Database, RefreshCw, Sparkles, User, LogOut } from 'lucide-react';
 
 interface Props {
   latestGoldPrice?: number;
@@ -10,6 +10,8 @@ interface Props {
   isRefreshing: boolean;
   mode: 'rolling_daily' | 'weekly_interpolated';
   onModeChange: (m: 'rolling_daily' | 'weekly_interpolated') => void;
+  user?: { name: string; email: string } | null;
+  onLogout?: () => void;
 }
 
 export const DashboardHeader: React.FC<Props> = ({
@@ -19,6 +21,8 @@ export const DashboardHeader: React.FC<Props> = ({
   isRefreshing,
   mode,
   onModeChange,
+  user,
+  onLogout,
 }) => {
   return (
     <header className="w-full flex flex-col md:flex-row items-start md:items-center justify-between gap-4 py-4 px-6 bg-slate-900/60 border border-slate-800/80 rounded-2xl backdrop-blur-xl shadow-lg">
@@ -107,6 +111,35 @@ export const DashboardHeader: React.FC<Props> = ({
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-400' : ''}`} />
           <span>{isRefreshing ? 'Syncing...' : 'Sync'}</span>
         </button>
+
+        {/* User Profile & Logout */}
+        {user && (
+          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs font-mono"
+              title={`Logged in as ${user.email}`}
+            >
+              <div className="w-5 h-5 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-[10px]">
+                {user.name ? user.name[0].toUpperCase() : 'U'}
+              </div>
+              <span className="text-slate-300 font-medium max-w-[110px] truncate hidden sm:inline">
+                {user.name}
+              </span>
+            </div>
+
+            {onLogout && (
+              <button
+                id="header-logout-btn"
+                onClick={onLogout}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 text-rose-300 hover:text-rose-200 text-xs font-medium transition"
+                title="Sign out of CTG Terminal"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

@@ -55,6 +55,16 @@ export const syncHistory = pgTable('sync_history', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').default('user').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export type Token = typeof tokens.$inferSelect;
 export type NewToken = typeof tokens.$inferInsert;
 export type TokenPrice = typeof tokenPrices.$inferSelect;
@@ -62,3 +72,5 @@ export type NewTokenPrice = typeof tokenPrices.$inferInsert;
 export type GoldPrice = typeof goldPrices.$inferSelect;
 export type NewGoldPrice = typeof goldPrices.$inferInsert;
 export type SyncHistory = typeof syncHistory.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
