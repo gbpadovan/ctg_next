@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useTransition } from 'react';
 import dynamic from 'next/dynamic';
+import { AppShell } from '@/components/layout/AppShell';
 import { DashboardHeader } from '@/components/dashboard/Header';
 import { TokenSelector } from '@/components/dashboard/TokenSelector';
 import { MetricCards } from '@/components/dashboard/MetricCards';
@@ -108,7 +109,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#070a12] text-slate-100">
+    <AppShell>
       <div className="flex flex-col p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full gap-6">
         {/* 1. Header */}
         <DashboardHeader
@@ -244,6 +245,6 @@ export default function DashboardPage() {
         </div>
       </footer>
     </div>
-  </div>
+  </AppShell>
 );
 }

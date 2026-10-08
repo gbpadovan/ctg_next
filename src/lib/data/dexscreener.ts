@@ -30,11 +30,14 @@ export interface DexPairInfo {
   };
 }
 
-export async function fetchDexScreenerPair(chain: string, pairAddress: string): Promise<DexPairInfo | null> {
+export async function fetchDexScreenerPair(
+  chain: string,
+  pairAddress: string
+): Promise<DexPairInfo | null> {
   try {
     const url = `https://api.dexscreener.com/latest/dex/pairs/${chain}/${pairAddress}`;
     const res = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
       next: { revalidate: 60 },
     });
 
@@ -52,8 +55,38 @@ export async function fetchDexScreenerPair(chain: string, pairAddress: string): 
   }
 }
 
-export async function fetchDexScreenerLatestPrice(chain: string, pairAddress: string): Promise<OHLCVPoint | null> {
-  const pair = await fetchDexScreenerPair(chain, pairAddress);
+export async function fetchDexScreenerTokens(tokenAddress: string): Promise<DexPairInfo | null> {
+  try {
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 60 },
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data.pairs || data.pairs.length === 0) return null;
+
+    // Pick pair with highest USD liquidity
+    const sorted = [...data.pairs].sort(
+      (a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+    );
+    return sorted[0];
+  } catch (error) {
+    console.error(`Error querying DexScreener token ${tokenAddress}:`, error);
+    return null;
+  }
+}
+
+export async function fetchDexScreenerLatestPrice(
+  chain: string,
+  pairAddress: string
+): Promise<OHLCVPoint | null> {
+  let pair = await fetchDexScreenerPair(chain, pairAddress);
+  if (!pair) {
+    pair = await fetchDexScreenerTokens(pairAddress);
+  }
   if (!pair) return null;
 
   const currentPrice = parseFloat(pair.priceUsd || pair.priceNative);
