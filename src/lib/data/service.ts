@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb, schema } from '@/db';
-import { eq, asc, desc } from 'drizzle-orm';
+import { eq, asc, desc, sql } from 'drizzle-orm';
 import { fetchGoldHistorical, OHLCVPoint } from './gold';
 import { fetchYahooCryptoHistorical } from './crypto-yahoo';
 import { fetchDexScreenerLatestPrice } from './dexscreener';
@@ -248,40 +248,48 @@ export class CTGDataService {
 
     const details: Record<string, number> = {};
 
-    // 1. Sync Gold
+    // 1. Sync Gold in parallel bulk batches
     try {
       const goldPoints = await fetchGoldHistorical('2023-01-01');
-      let goldInserted = 0;
-
-      for (const pt of goldPoints) {
-        await db
-          .insert(schema.goldPrices)
-          .values({
-            date: pt.date,
-            open: pt.open.toString(),
-            high: pt.high.toString(),
-            low: pt.low.toString(),
-            close: pt.close.toString(),
-            volume: pt.volume ? pt.volume.toString() : '0',
-          })
-          .onConflictDoUpdate({
-            target: schema.goldPrices.date,
-            set: {
-              open: pt.open.toString(),
-              high: pt.high.toString(),
-              low: pt.low.toString(),
-              close: pt.close.toString(),
-              volume: pt.volume ? pt.volume.toString() : '0',
-            },
-          });
-        goldInserted++;
+      const BATCH_SIZE = 250;
+      const batches: OHLCVPoint[][] = [];
+      for (let i = 0; i < goldPoints.length; i += BATCH_SIZE) {
+        batches.push(goldPoints.slice(i, i + BATCH_SIZE));
       }
-      details['GOLD'] = goldInserted;
+
+      await Promise.all(
+        batches.map((batch) =>
+          db
+            .insert(schema.goldPrices)
+            .values(
+              batch.map((pt) => ({
+                date: pt.date,
+                open: pt.open.toString(),
+                high: pt.high.toString(),
+                low: pt.low.toString(),
+                close: pt.close.toString(),
+                volume: pt.volume ? pt.volume.toString() : '0',
+              }))
+            )
+            .onConflictDoUpdate({
+              target: schema.goldPrices.date,
+              set: {
+                open: sql`excluded.open`,
+                high: sql`excluded.high`,
+                low: sql`excluded.low`,
+                close: sql`excluded.close`,
+                volume: sql`excluded.volume`,
+              },
+            })
+        )
+      );
+
+      details['GOLD'] = goldPoints.length;
     } catch (err) {
       console.error('Error syncing gold:', err);
     }
 
-    // 2. Sync Each Token
+    // 2. Sync Each Token in parallel bulk batches
     for (const token of SUPPORTED_TOKENS) {
       try {
         // Ensure token exists in tokens table
@@ -308,33 +316,41 @@ export class CTGDataService {
         }
 
         const prices = await this.getTokenHistory(token, '2023-01-01');
-        let count = 0;
-
-        for (const pt of prices) {
-          await db
-            .insert(schema.tokenPrices)
-            .values({
-              tokenId,
-              date: pt.date,
-              open: pt.open.toString(),
-              high: pt.high.toString(),
-              low: pt.low.toString(),
-              close: pt.close.toString(),
-              volume: pt.volume ? pt.volume.toString() : '0',
-            })
-            .onConflictDoUpdate({
-              target: [schema.tokenPrices.tokenId, schema.tokenPrices.date],
-              set: {
-                open: pt.open.toString(),
-                high: pt.high.toString(),
-                low: pt.low.toString(),
-                close: pt.close.toString(),
-                volume: pt.volume ? pt.volume.toString() : '0',
-              },
-            });
-          count++;
+        const BATCH_SIZE = 250;
+        const batches: OHLCVPoint[][] = [];
+        for (let i = 0; i < prices.length; i += BATCH_SIZE) {
+          batches.push(prices.slice(i, i + BATCH_SIZE));
         }
-        details[token.symbol] = count;
+
+        await Promise.all(
+          batches.map((batch) =>
+            db
+              .insert(schema.tokenPrices)
+              .values(
+                batch.map((pt) => ({
+                  tokenId,
+                  date: pt.date,
+                  open: pt.open.toString(),
+                  high: pt.high.toString(),
+                  low: pt.low.toString(),
+                  close: pt.close.toString(),
+                  volume: pt.volume ? pt.volume.toString() : '0',
+                }))
+              )
+              .onConflictDoUpdate({
+                target: [schema.tokenPrices.tokenId, schema.tokenPrices.date],
+                set: {
+                  open: sql`excluded.open`,
+                  high: sql`excluded.high`,
+                  low: sql`excluded.low`,
+                  close: sql`excluded.close`,
+                  volume: sql`excluded.volume`,
+                },
+              })
+          )
+        );
+
+        details[token.symbol] = prices.length;
       } catch (err) {
         console.error(`Error syncing token ${token.symbol}:`, err);
       }

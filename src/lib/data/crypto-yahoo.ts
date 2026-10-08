@@ -9,7 +9,14 @@ export async function fetchYahooCryptoHistorical(
   endDate?: string
 ): Promise<OHLCVPoint[]> {
   try {
-    const formattedSymbol = symbol.toUpperCase().endsWith('-USD') ? symbol.toUpperCase() : `${symbol.toUpperCase()}-USD`;
+    let symUpper = symbol.toUpperCase().trim();
+    if (symUpper === 'GF=C') {
+      symUpper = 'GC=F';
+    }
+    const formattedSymbol =
+      symUpper.endsWith('-USD') || symUpper.includes('=') || symUpper.startsWith('^')
+        ? symUpper
+        : `${symUpper}-USD`;
     const period1 = new Date(startDate);
     const period2 = endDate ? new Date(endDate) : new Date();
 

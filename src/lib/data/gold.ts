@@ -13,13 +13,18 @@ export interface OHLCVPoint {
 
 export async function fetchGoldHistorical(
   startDate: string = '2023-01-01',
-  endDate?: string
+  endDate?: string,
+  tickerInput: string = 'GC=F'
 ): Promise<OHLCVPoint[]> {
   try {
     const period1 = new Date(startDate);
     const period2 = endDate ? new Date(endDate) : new Date();
+    const cleanTicker =
+      tickerInput.trim().toUpperCase() === 'GF=C'
+        ? 'GC=F'
+        : tickerInput.trim().toUpperCase() || 'GC=F';
 
-    const result = await yf.chart('GC=F', {
+    const result = await yf.chart(cleanTicker, {
       period1,
       period2,
       interval: '1d',

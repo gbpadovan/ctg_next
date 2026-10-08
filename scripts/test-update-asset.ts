@@ -7,6 +7,18 @@ import { syncAssetFromProvider } from '../src/lib/data/sync-asset';
 async function testUpdates() {
   console.log('--- Testing Asset Update Engine ---');
 
+  // 0. Test Yahoo Finance update for GOLD (with GF=C alias)
+  console.log('0. Testing Yahoo Finance update for GOLD with GF=C alias (900+ candles)...');
+  const tGold = Date.now();
+  const goldRes = await syncAssetFromProvider({
+    symbol: 'GOLD',
+    provider: 'yahoo',
+    identifier: 'GF=C',
+    startDate: '2023-01-01',
+    endDate: '2026-10-08',
+  });
+  console.log(`Gold sync with GF=C took ${Date.now() - tGold}ms:`, goldRes);
+
   // 1. Test Yahoo Finance update for BTC
   console.log('1. Testing Yahoo Finance update for BTC (BTC-USD)...');
   const yahooRes = await syncAssetFromProvider({

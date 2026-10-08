@@ -43,9 +43,12 @@ export async function syncAssetFromProvider(params: SyncAssetParams): Promise<Sy
 
   try {
     if (provider === 'yahoo') {
-      const ticker = identifier.trim();
+      let ticker = identifier.trim().toUpperCase();
+      if (ticker === 'GF=C') {
+        ticker = 'GC=F';
+      }
       if (sym === 'GOLD' || ticker === 'GC=F') {
-        candles = await fetchGoldHistorical(effectiveStart, effectiveEnd);
+        candles = await fetchGoldHistorical(effectiveStart, effectiveEnd, ticker);
       } else {
         candles = await fetchYahooCryptoHistorical(ticker, effectiveStart, effectiveEnd);
       }
@@ -88,34 +91,41 @@ export async function syncAssetFromProvider(params: SyncAssetParams): Promise<Sy
   }
 
   try {
+    const BATCH_SIZE = 250;
+
     if (sym === 'GOLD') {
-      // Chunk inserts in batches of 100 for high performance
-      const BATCH_SIZE = 100;
+      // Chunk inserts in true bulk batches (single SQL query per batch, executed in parallel)
+      const batches: OHLCVPoint[][] = [];
       for (let i = 0; i < validCandles.length; i += BATCH_SIZE) {
-        const batch = validCandles.slice(i, i + BATCH_SIZE);
-        for (const g of batch) {
-          await db
+        batches.push(validCandles.slice(i, i + BATCH_SIZE));
+      }
+
+      await Promise.all(
+        batches.map((batch) =>
+          db
             .insert(schema.goldPrices)
-            .values({
-              date: g.date,
-              open: g.open.toString(),
-              high: g.high.toString(),
-              low: g.low.toString(),
-              close: g.close.toString(),
-              volume: (g.volume || 0).toString(),
-            })
-            .onConflictDoUpdate({
-              target: schema.goldPrices.date,
-              set: {
+            .values(
+              batch.map((g) => ({
+                date: g.date,
                 open: g.open.toString(),
                 high: g.high.toString(),
                 low: g.low.toString(),
                 close: g.close.toString(),
                 volume: (g.volume || 0).toString(),
+              }))
+            )
+            .onConflictDoUpdate({
+              target: schema.goldPrices.date,
+              set: {
+                open: sql`excluded.open`,
+                high: sql`excluded.high`,
+                low: sql`excluded.low`,
+                close: sql`excluded.close`,
+                volume: sql`excluded.volume`,
               },
-            });
-        }
-      }
+            })
+        )
+      );
 
       const lastDate = validCandles[validCandles.length - 1].date;
       await db
@@ -149,34 +159,39 @@ export async function syncAssetFromProvider(params: SyncAssetParams): Promise<Sy
 
       const tokenId = tokenRec.id;
 
-      // Upsert candles into token_prices
-      const BATCH_SIZE = 100;
+      // Upsert candles into token_prices in parallel multi-row bulk batches
+      const batches: OHLCVPoint[][] = [];
       for (let i = 0; i < validCandles.length; i += BATCH_SIZE) {
-        const batch = validCandles.slice(i, i + BATCH_SIZE);
-        for (const pt of batch) {
-          await db
+        batches.push(validCandles.slice(i, i + BATCH_SIZE));
+      }
+
+      await Promise.all(
+        batches.map((batch) =>
+          db
             .insert(schema.tokenPrices)
-            .values({
-              tokenId,
-              date: pt.date,
-              open: pt.open.toString(),
-              high: pt.high.toString(),
-              low: pt.low.toString(),
-              close: pt.close.toString(),
-              volume: (pt.volume || 0).toString(),
-            })
-            .onConflictDoUpdate({
-              target: [schema.tokenPrices.tokenId, schema.tokenPrices.date],
-              set: {
+            .values(
+              batch.map((pt) => ({
+                tokenId,
+                date: pt.date,
                 open: pt.open.toString(),
                 high: pt.high.toString(),
                 low: pt.low.toString(),
                 close: pt.close.toString(),
                 volume: (pt.volume || 0).toString(),
+              }))
+            )
+            .onConflictDoUpdate({
+              target: [schema.tokenPrices.tokenId, schema.tokenPrices.date],
+              set: {
+                open: sql`excluded.open`,
+                high: sql`excluded.high`,
+                low: sql`excluded.low`,
+                close: sql`excluded.close`,
+                volume: sql`excluded.volume`,
               },
-            });
-        }
-      }
+            })
+        )
+      );
 
       const lastDate = validCandles[validCandles.length - 1].date;
       await db
