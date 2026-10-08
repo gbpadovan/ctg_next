@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   createChart,
   ColorType,
@@ -12,7 +12,8 @@ import {
   IChartApi,
 } from 'lightweight-charts';
 import { CTGDataPoint } from '@/lib/indicators/ctg';
-import { Maximize2, Minimize2, Eye, TrendingUp, Layers } from 'lucide-react';
+import { Maximize2, Minimize2, Eye, TrendingUp, Layers, Clock, RotateCcw } from 'lucide-react';
+import { IsoDateInput } from '@/components/ui/IsoDateInput';
 
 interface Props {
   data: CTGDataPoint[];
@@ -26,8 +27,79 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
   const [viewMode, setViewMode] = useState<'ratio_roc' | 'candlestick'>('ratio_roc');
   const [hoveredPoint, setHoveredPoint] = useState<CTGDataPoint | null>(null);
 
+  // Available data date boundary
+  const minDate = useMemo(() => {
+    return data && data.length > 0 ? data[0].date : '2021-01-01';
+  }, [data]);
+
+  const maxDate = useMemo(() => {
+    return data && data.length > 0 ? data[data.length - 1].date : new Date().toISOString().slice(0, 10);
+  }, [data]);
+
+  // Date Range Filtering state
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [activePreset, setActivePreset] = useState<string>('ALL');
+
+  // Handle Preset selection
+  const applyPreset = (preset: string, latestDate?: string, earliestDate?: string) => {
+    setActivePreset(preset);
+    const end = latestDate || maxDate || new Date().toISOString().slice(0, 10);
+    const min = earliestDate || minDate || '2021-01-01';
+    setEndDate(end);
+
+    const now = new Date(end);
+    let startD = new Date(now);
+
+    if (preset === '1M') {
+      startD.setMonth(now.getMonth() - 1);
+    } else if (preset === '3M') {
+      startD.setMonth(now.getMonth() - 3);
+    } else if (preset === '6M') {
+      startD.setMonth(now.getMonth() - 6);
+    } else if (preset === '1Y') {
+      startD.setFullYear(now.getFullYear() - 1);
+    } else if (preset === 'ALL') {
+      setStartDate(min);
+      return;
+    }
+
+    const startStr = startD.toISOString().slice(0, 10);
+    setStartDate(startStr < min ? min : startStr);
+  };
+
+  // Sync date bounds when data or token changes
   useEffect(() => {
-    if (!chartContainerRef.current || !data || data.length === 0) return;
+    if (data && data.length > 0) {
+      if (activePreset === 'ALL' || !startDate || !endDate) {
+        setStartDate(data[0].date);
+        setEndDate(data[data.length - 1].date);
+        setActivePreset('ALL');
+      } else if (activePreset !== 'CUSTOM') {
+        applyPreset(activePreset, data[data.length - 1].date, data[0].date);
+      }
+    }
+  }, [data]);
+
+  const handleResetFilter = () => {
+    setActivePreset('ALL');
+    setStartDate(minDate);
+    setEndDate(maxDate);
+  };
+
+  // Filter data points by current date range
+  const filteredData = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    if (!startDate && !endDate) return data;
+    return data.filter((d) => {
+      if (startDate && d.date < startDate) return false;
+      if (endDate && d.date > endDate) return false;
+      return true;
+    });
+  }, [data, startDate, endDate]);
+
+  useEffect(() => {
+    if (!chartContainerRef.current || !filteredData || filteredData.length === 0) return;
 
     // Clean up existing chart
     if (chartInstanceRef.current) {
@@ -38,7 +110,7 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
     const container = chartContainerRef.current;
 
     // Filter and ensure chronological sorting
-    const cleanData = data
+    const cleanData = filteredData
       .filter((d) => d.date && !isNaN(d.ratio) && !isNaN(d.token.close))
       .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -235,9 +307,9 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
         chartInstanceRef.current = null;
       }
     };
-  }, [data, tokenSymbol, viewMode]);
+  }, [filteredData, tokenSymbol, viewMode]);
 
-  const activePoint = hoveredPoint || (data.length > 0 ? data[data.length - 1] : null);
+  const activePoint = hoveredPoint || (filteredData.length > 0 ? filteredData[filteredData.length - 1] : null);
 
   const formatNumber = (num: number, maxDecimals: number = 4) => {
     if (num === 0) return '0.00';
@@ -299,6 +371,87 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
         </div>
       </div>
 
+      {/* Date Range Controls Bar (Matching /assets/[asset] style) */}
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800/70">
+        {/* Quick Range Presets */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-semibold text-slate-300 font-mono flex items-center gap-1.5 mr-1">
+            <Clock className="w-3.5 h-3.5 text-blue-400" />
+            Intervals:
+          </span>
+          {['1M', '3M', '6M', '1Y', 'ALL'].map((preset) => (
+            <button
+              key={preset}
+              id={`ctg-preset-${preset.toLowerCase()}-btn`}
+              onClick={() => applyPreset(preset)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium font-mono transition ${
+                activePreset === preset
+                  ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20'
+                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom Date Pickers */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <label htmlFor="ctg-start-date" className="text-slate-300 flex items-center gap-1.5">
+              <span className="font-semibold text-slate-300">Start:</span>
+              <span className="text-amber-400 font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 font-semibold">
+                YYYY-MM-DD
+              </span>
+            </label>
+            <div className="w-36">
+              <IsoDateInput
+                id="ctg-start-date"
+                value={startDate}
+                min={minDate}
+                max={endDate}
+                onChange={(val) => {
+                  setActivePreset('CUSTOM');
+                  setStartDate(val);
+                }}
+                focusColor="blue"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <label htmlFor="ctg-end-date" className="text-slate-300 flex items-center gap-1.5">
+              <span className="font-semibold text-slate-300">End:</span>
+              <span className="text-amber-400 font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 font-semibold">
+                YYYY-MM-DD
+              </span>
+            </label>
+            <div className="w-36">
+              <IsoDateInput
+                id="ctg-end-date"
+                value={endDate}
+                min={startDate}
+                max={maxDate}
+                onChange={(val) => {
+                  setActivePreset('CUSTOM');
+                  setEndDate(val);
+                }}
+                focusColor="blue"
+              />
+            </div>
+          </div>
+
+          <button
+            id="ctg-reset-date-btn"
+            onClick={handleResetFilter}
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition"
+            title="Reset date filter to ALL"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
       {/* Real-time Crosshair Inspector Bar */}
       {activePoint && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-3 py-2 bg-slate-950/60 rounded-xl border border-slate-800/70 text-xs">
@@ -333,10 +486,16 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
       )}
 
       {/* Canvas Chart Container */}
-      <div
-        ref={chartContainerRef}
-        className="w-full h-[560px] rounded-xl overflow-hidden border border-slate-800/80 bg-[#0b0f19] relative"
-      />
+      {filteredData.length === 0 ? (
+        <div className="w-full h-[560px] rounded-xl flex items-center justify-center border border-slate-800/80 bg-[#0b0f19] text-slate-400 font-mono text-xs">
+          No data points found for {startDate} to {endDate}.
+        </div>
+      ) : (
+        <div
+          ref={chartContainerRef}
+          className="w-full h-[560px] rounded-xl overflow-hidden border border-slate-800/80 bg-[#0b0f19] relative"
+        />
+      )}
     </div>
   );
 };
