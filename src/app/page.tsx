@@ -108,9 +108,10 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full gap-6">
-      {/* 1. Header */}
-      <DashboardHeader
+    <div className="min-h-screen w-full bg-[#070a12] text-slate-100">
+      <div className="flex flex-col p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full gap-6">
+        {/* 1. Header */}
+        <DashboardHeader
         latestGoldPrice={analysis?.summary.latestGoldPrice}
         isDbConnected={isDbConnected}
         onRefresh={handleRefresh}
@@ -243,5 +244,6 @@ export default function DashboardPage() {
         </div>
       </footer>
     </div>
-  );
+  </div>
+);
 }
