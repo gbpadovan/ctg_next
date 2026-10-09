@@ -2,10 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { getDb, schema } from '@/db';
 import { eq, asc, desc, sql } from 'drizzle-orm';
-import { fetchGoldHistorical, OHLCVPoint } from './gold';
-import { fetchYahooCryptoHistorical } from './crypto-yahoo';
+import { fetchGoldHistorical, fetchGoldLatest, OHLCVPoint } from './gold';
+import { fetchYahooCryptoHistorical, fetchYahooCryptoLatest } from './crypto-yahoo';
 import { fetchDexScreenerLatestPrice } from './dexscreener';
-import { SUPPORTED_TOKENS, TokenDefinition } from './tokens';
+import { SUPPORTED_TOKENS, TokenDefinition, ASSET_PROVIDER_MAPPINGS } from './tokens';
 import {
   computeCTG,
   interpolateGoldPrices,
@@ -361,5 +361,181 @@ export class CTGDataService {
       message: 'Synchronization completed successfully.',
       details,
     };
+  }
+
+  /**
+   * Retrieves the latest price for both the token and gold from Yahoo Finance,
+   * stores them in the database, and recalculates the CTG analysis.
+   */
+  static async refreshLatestPairFromYahoo(
+    symbol: string,
+    mode: 'rolling_daily' | 'weekly_interpolated' = 'rolling_daily'
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: CTGAnalysisResult;
+    tokenPrice?: number;
+    goldPrice?: number;
+    date?: string;
+  }> {
+    const sym = symbol.toUpperCase().trim();
+    const db = getDb();
+
+    if (!db) {
+      return {
+        success: false,
+        message: 'Database is not connected. Please verify DATABASE_URL.',
+      };
+    }
+
+    const tokenDef = SUPPORTED_TOKENS.find(
+      (t) => t.symbol.toUpperCase() === sym
+    );
+
+    if (!tokenDef) {
+      return {
+        success: false,
+        message: `Asset "${sym}" is not recognized as a supported token.`,
+      };
+    }
+
+    const yahooTicker = ASSET_PROVIDER_MAPPINGS[sym]?.yahoo || `${sym}-USD`;
+
+    try {
+      // 1. Fetch latest prices in parallel from Yahoo Finance
+      const [goldPoint, tokenPoint] = await Promise.all([
+        fetchGoldLatest(),
+        fetchYahooCryptoLatest(yahooTicker),
+      ]);
+
+      if (!goldPoint || isNaN(goldPoint.close) || goldPoint.close <= 0) {
+        return {
+          success: false,
+          message: 'Failed to retrieve latest Gold price from Yahoo Finance (GC=F).',
+        };
+      }
+
+      if (!tokenPoint || isNaN(tokenPoint.close) || tokenPoint.close <= 0) {
+        return {
+          success: false,
+          message: `Failed to retrieve latest ${sym} price from Yahoo Finance (${yahooTicker}).`,
+        };
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const goldDate = goldPoint.date || todayStr;
+      const tokenDate = tokenPoint.date || todayStr;
+
+      // 2. Upsert latest Gold price into gold_prices
+      await db
+        .insert(schema.goldPrices)
+        .values({
+          date: goldDate,
+          open: goldPoint.open.toString(),
+          high: goldPoint.high.toString(),
+          low: goldPoint.low.toString(),
+          close: goldPoint.close.toString(),
+          volume: (goldPoint.volume || 0).toString(),
+        })
+        .onConflictDoUpdate({
+          target: schema.goldPrices.date,
+          set: {
+            open: sql`excluded.open`,
+            high: sql`excluded.high`,
+            low: sql`excluded.low`,
+            close: sql`excluded.close`,
+            volume: sql`excluded.volume`,
+          },
+        });
+
+      // 3. Upsert latest Token price into token_prices
+      let tokenRecord = await db.query.tokens.findFirst({
+        where: eq(schema.tokens.symbol, sym),
+      });
+
+      if (!tokenRecord) {
+        const [inserted] = await db
+          .insert(schema.tokens)
+          .values({
+            symbol: sym,
+            name: tokenDef.name,
+            sourceType: tokenDef.sourceType,
+            sourceIdentifier: tokenDef.sourceIdentifier,
+            chain: tokenDef.chain || 'layer-1',
+            quoteToken: tokenDef.quoteToken || 'USD',
+          })
+          .returning();
+        tokenRecord = inserted;
+      }
+
+      const tokenId = tokenRecord.id;
+
+      await db
+        .insert(schema.tokenPrices)
+        .values({
+          tokenId,
+          date: tokenDate,
+          open: tokenPoint.open.toString(),
+          high: tokenPoint.high.toString(),
+          low: tokenPoint.low.toString(),
+          close: tokenPoint.close.toString(),
+          volume: (tokenPoint.volume || 0).toString(),
+        })
+        .onConflictDoUpdate({
+          target: [schema.tokenPrices.tokenId, schema.tokenPrices.date],
+          set: {
+            open: sql`excluded.open`,
+            high: sql`excluded.high`,
+            low: sql`excluded.low`,
+            close: sql`excluded.close`,
+            volume: sql`excluded.volume`,
+          },
+        });
+
+      // 4. Update sync history for both
+      await Promise.all([
+        db
+          .insert(schema.syncHistory)
+          .values({ target: 'GOLD', lastDateSynced: goldDate })
+          .onConflictDoNothing(),
+        db
+          .insert(schema.syncHistory)
+          .values({ target: sym, lastDateSynced: tokenDate })
+          .onConflictDoNothing(),
+      ]);
+
+      // 5. Invalidate memory cache and recompute CTG analysis
+      memoryCache.delete(`${sym}_rolling_daily`);
+      memoryCache.delete(`${sym}_weekly_interpolated`);
+
+      const updatedAnalysis = await this.getCTGAnalysis(sym, {
+        mode,
+        forceRefresh: true,
+      });
+
+      if (!updatedAnalysis) {
+        return {
+          success: false,
+          message: 'Prices updated in database, but failed to recalculate CTG indicator.',
+        };
+      }
+
+      const ratio = tokenPoint.close / goldPoint.close;
+
+      return {
+        success: true,
+        message: `Updated Yahoo prices: ${sym} ($${tokenPoint.close.toLocaleString('en-US', { maximumFractionDigits: 4 })}) & Gold ($${goldPoint.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) on ${tokenDate}. New Ratio: ${ratio.toFixed(6)}.`,
+        data: updatedAnalysis,
+        tokenPrice: tokenPoint.close,
+        goldPrice: goldPoint.close,
+        date: tokenDate,
+      };
+    } catch (err: unknown) {
+      console.error(`Error refreshing latest prices for ${sym}:`, err);
+      return {
+        success: false,
+        message: `Failed to refresh prices: ${(err as Error).message}`,
+      };
+    }
   }
 }

@@ -12,16 +12,24 @@ import {
   IChartApi,
 } from 'lightweight-charts';
 import { CTGDataPoint } from '@/lib/indicators/ctg';
-import { Maximize2, Minimize2, Eye, TrendingUp, Layers, Clock, RotateCcw } from 'lucide-react';
+import { Maximize2, Minimize2, Eye, TrendingUp, Layers, Clock, RotateCcw, RefreshCw } from 'lucide-react';
 import { IsoDateInput } from '@/components/ui/IsoDateInput';
 
 interface Props {
   data: CTGDataPoint[];
   tokenSymbol: string;
   tokenName?: string;
+  onRefreshLatest?: () => void;
+  isRefreshing?: boolean;
 }
 
-export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
+export const CTGChart: React.FC<Props> = ({
+  data,
+  tokenSymbol,
+  tokenName,
+  onRefreshLatest,
+  isRefreshing,
+}) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const [viewMode, setViewMode] = useState<'ratio_roc' | 'candlestick'>('ratio_roc');
@@ -344,30 +352,51 @@ export const CTGChart: React.FC<Props> = ({ data, tokenSymbol, tokenName }) => {
           </div>
         </div>
 
-        {/* View Switcher Controls */}
-        <div className="flex items-center gap-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-          <button
-            onClick={() => setViewMode('ratio_roc')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              viewMode === 'ratio_roc'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 font-semibold'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>CTG Oscillator & Signals</span>
-          </button>
-          <button
-            onClick={() => setViewMode('candlestick')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              viewMode === 'candlestick'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 font-semibold'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
-          >
-            <Eye className="w-3.5 h-3.5" />
-            <span>Candlestick Overlay</span>
-          </button>
+        {/* Controls: Refresh Yahoo & View Switcher */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {onRefreshLatest && (
+            <button
+              id="chart-refresh-yahoo-btn"
+              type="button"
+              onClick={onRefreshLatest}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-xs font-mono font-medium transition shadow-sm hover:shadow-amber-500/10 disabled:opacity-50"
+              title={`Fetch latest live prices for ${tokenSymbol} and Gold from Yahoo Finance, save to database, and update CTG`}
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${
+                  isRefreshing ? 'animate-spin text-amber-400' : 'text-amber-400'
+                }`}
+              />
+              <span>{isRefreshing ? 'Updating...' : 'Refresh Yahoo'}</span>
+            </button>
+          )}
+
+          {/* View Switcher Controls */}
+          <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setViewMode('ratio_roc')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === 'ratio_roc'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 font-semibold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>CTG Oscillator & Signals</span>
+            </button>
+            <button
+              onClick={() => setViewMode('candlestick')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                viewMode === 'candlestick'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 font-semibold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Candlestick Overlay</span>
+            </button>
+          </div>
         </div>
       </div>
 

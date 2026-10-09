@@ -9,7 +9,11 @@ import { MetricCards } from '@/components/dashboard/MetricCards';
 import { SignalHistoryTable } from '@/components/dashboard/SignalHistoryTable';
 import { SUPPORTED_TOKENS, TokenDefinition } from '@/lib/data/tokens';
 import { CTGAnalysisResult } from '@/lib/indicators/ctg';
-import { fetchIndicatorAction, triggerManualSyncAction } from './actions';
+import {
+  fetchIndicatorAction,
+  triggerManualSyncAction,
+  refreshLatestPricesAction,
+} from './actions';
 import { getCurrentUserAction, logoutAction } from './actions/auth';
 import { SessionPayload } from '@/lib/auth/session';
 import {
@@ -46,6 +50,11 @@ export default function DashboardPage() {
   const [syncStatus, setSyncStatus] = useState<{
     success?: boolean;
     message?: string;
+  } | null>(null);
+  const [isPriceRefreshing, setIsPriceRefreshing] = useState<boolean>(false);
+  const [priceRefreshStatus, setPriceRefreshStatus] = useState<{
+    success: boolean;
+    message: string;
   } | null>(null);
   const [isDbConnected, setIsDbConnected] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<SessionPayload | null>(null);
@@ -98,6 +107,34 @@ export default function DashboardPage() {
     const syncRes = await triggerManualSyncAction();
     setSyncStatus({ success: syncRes.success, message: syncRes.message });
     loadIndicatorData(selectedSymbol, mode, true);
+  };
+
+  const handleRefreshLatestPrices = async () => {
+    setIsPriceRefreshing(true);
+    setPriceRefreshStatus(null);
+    try {
+      const res = await refreshLatestPricesAction(selectedSymbol, mode);
+      if (res.success && res.data) {
+        setAnalysis(res.data);
+        setPriceRefreshStatus({
+          success: true,
+          message: res.message,
+        });
+        setTimeout(() => setPriceRefreshStatus(null), 6000);
+      } else {
+        setPriceRefreshStatus({
+          success: false,
+          message: res.message || 'Failed to refresh latest Yahoo prices.',
+        });
+      }
+    } catch (err) {
+      setPriceRefreshStatus({
+        success: false,
+        message: (err as Error).message,
+      });
+    } finally {
+      setIsPriceRefreshing(false);
+    }
   };
 
   const selectedTokenDef = tokens.find(
@@ -162,7 +199,24 @@ export default function DashboardPage() {
       )}
 
       {/* 4. Chart Visualization */}
-      <section className="w-full">
+      <section className="w-full flex flex-col gap-2.5">
+        {priceRefreshStatus && (
+          <div
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-mono transition-all animate-in fade-in duration-200 ${
+              priceRefreshStatus.success
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25 shadow-sm shadow-emerald-500/10'
+                : 'bg-rose-500/10 text-rose-300 border-rose-500/25'
+            }`}
+          >
+            {priceRefreshStatus.success ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            )}
+            <span>{priceRefreshStatus.message}</span>
+          </div>
+        )}
+
         {loading && !analysis ? (
           <div className="w-full h-[560px] rounded-2xl bg-slate-900/50 border border-slate-800 animate-pulse flex flex-col items-center justify-center gap-3">
             <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
@@ -175,6 +229,8 @@ export default function DashboardPage() {
             data={analysis.data}
             tokenSymbol={selectedSymbol}
             tokenName={selectedTokenDef?.name}
+            onRefreshLatest={handleRefreshLatestPrices}
+            isRefreshing={isPriceRefreshing}
           />
         ) : (
           <div className="w-full h-80 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-center text-slate-400">

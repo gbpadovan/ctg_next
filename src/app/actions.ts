@@ -36,3 +36,21 @@ export async function triggerManualSyncAction(): Promise<{
     return { success: false, message: (err as Error).message };
   }
 }
+
+export async function refreshLatestPricesAction(
+  symbol: string,
+  mode: 'rolling_daily' | 'weekly_interpolated' = 'rolling_daily'
+): Promise<{
+  success: boolean;
+  message: string;
+  data?: CTGAnalysisResult;
+  tokenPrice?: number;
+  goldPrice?: number;
+  date?: string;
+}> {
+  try {
+    return await CTGDataService.refreshLatestPairFromYahoo(symbol, mode);
+  } catch (err) {
+    return { success: false, message: (err as Error).message };
+  }
+}
